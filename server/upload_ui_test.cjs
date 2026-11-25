@@ -139,6 +139,43 @@ const reply = (data, code = 200) => ({
     await assert.rejects(context.api.upload({ size: 100, type: 'image/png' }, () => {}), (e) => e.message.includes(message));
   }
 
+  let lastFetchUrl = '';
+  fetchImpl = async (url) => {
+    lastFetchUrl = url;
+    return reply({
+      total: 120,
+      total_size: 204800,
+      has_more: true,
+      next_offset: 60,
+      summary: {
+        total_count: 150,
+        total_size: 307200,
+        dates: [{ date: '2026-11-02', count: 120 }, { date: '2026-11-01', count: 30 }],
+      },
+      list: [{
+        key: 'telegram/c/2026/11/02/p1.png',
+        size: 1024,
+        proxy_url: 'https://pic.test/i/p1.png',
+        direct_url: 'https://pic.test/i/p1.png',
+        created_at: '2026-11-02 04:00:00',
+      }],
+    });
+  };
+  const page = await context.api.listPage({ limit: 60, offset: 0, q: 'p1', sort: 'big', date: '2026-11-02', summary: true });
+  assert(lastFetchUrl.includes('limit=60'));
+  assert(lastFetchUrl.includes('offset=0'));
+  assert(lastFetchUrl.includes('sort=big'));
+  assert(lastFetchUrl.includes('date=2026-11-02'));
+  assert(lastFetchUrl.includes('q=p1'));
+  assert(lastFetchUrl.includes('summary=1'));
+  assert(lastFetchUrl.includes('tz_offset='));
+  assert.equal(page.total, 120);
+  assert.equal(page.totalSizeKB, 200);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextOffset, 60);
+  assert.equal(page.summary.totalCount, 150);
+  assert.equal(page.summary.dates.length, 2);
+
   let calls = 0;
   fetchImpl = async () => reply({
     total: 1001,

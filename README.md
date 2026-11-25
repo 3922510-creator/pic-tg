@@ -110,7 +110,7 @@ docker run -d \
 认证请求头支持 `Authorization: Bearer <API_KEY>` 或 `X-API-Key: <API_KEY>`：
 
 - `POST /api/upload`：`multipart/form-data`，字段 `file` 为图片文件（单文件上限 20MB，受 Telegram Bot API 限制）。
-- `GET /api/objects?limit=100&offset=0`：分页查询已上传图片索引。
+- `GET /api/objects?limit=60&offset=0`：服务端分页查询图片索引，支持 `q`（搜索）、`sort`（`new`/`old`/`big`/`small`）、`date`（`YYYY-MM-DD`）、`tz_offset`（时区偏移分钟数）与 `summary=1`（全库摘要）。
 - `GET /api/download/{key}`：以附件形式下载原图。
 - `DELETE /api/objects`：JSON 请求体 `{"key":"..."}` 或 `{"keys":["..."]}`，删除本地索引并尝试同步删除 Telegram 频道消息。
 

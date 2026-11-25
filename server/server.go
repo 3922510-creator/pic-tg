@@ -769,11 +769,24 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	tzOffset, _ := strconv.Atoi(q.Get("tz_offset"))
+	includeSummary := q.Get("summary") == "1" || q.Get("summary") == "true"
 
-	list, total, err := s.db.ListObjects(limit, offset, query)
+	res, err := s.db.ListObjectsPage(storage.ListOptions{
+		Limit:           limit,
+		Offset:          offset,
+		Query:           strings.TrimSpace(q.Get("q")),
+		Sort:            strings.TrimSpace(q.Get("sort")),
+		Date:            strings.TrimSpace(q.Get("date")),
+		TZOffsetMinutes: tzOffset,
+		IncludeSummary:  includeSummary,
+	})
 	if err != nil {
 		s.jsonResp(w, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -795,8 +808,8 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		Backend   string `json:"backend"`
 	}
 
-	items := make([]Item, 0, len(list))
-	for _, o := range list {
+	items := make([]Item, 0, len(res.Items))
+	for _, o := range res.Items {
 		var publicURL string
 		if o.PublicToken != "" {
 			publicURL = s.formatPublicURL(o.PublicToken)
@@ -827,10 +840,19 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	s.jsonResp(w, http.StatusOK, "success", map[string]any{
-		"list":  items,
-		"total": total,
-	})
+	nextOffset := offset + len(items)
+	payload := map[string]any{
+		"list":        items,
+		"total":       res.Total,
+		"total_size":  res.TotalSize,
+		"has_more":    nextOffset < res.Total,
+		"next_offset": nextOffset,
+	}
+	if res.Summary != nil {
+		payload["summary"] = res.Summary
+	}
+
+	s.jsonResp(w, http.StatusOK, "success", payload)
 }
 
 func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {

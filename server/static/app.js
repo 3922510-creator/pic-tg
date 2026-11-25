@@ -176,29 +176,8 @@ const PicAPI = {
     }
   },
 
-  async list() {
-    if (serverHasAuth && !getToken()) return [];
-    const token = getToken();
-    const headers = authHeaders({}, token);
-    const records = [];
-    for (let offset = 0; ;) {
-      const res = await authFetch('/api/objects?limit=1000&offset=' + offset, { headers });
-      const json = await res.json();
-      if (!res.ok || json.code !== 200) {
-        if (res.status === 401 && getToken() === token) {
-          setToken('');
-          updateTokenUI();
-          renderGallery();
-          promptAuthModal('需要重新登录以访问图库');
-        }
-        throw new Error(json.msg || '图库加载失败');
-      }
-      const page = json.data?.list || [];
-      records.push(...page);
-      offset += page.length;
-      if (!page.length || offset >= json.data.total) break;
-    }
-    return records.map((it, idx) => ({
+  mapObjectItem(it, idx = 0) {
+    return {
       id: it.key,
       key: it.key,
       name: it.key.split('/').pop(),
@@ -212,7 +191,72 @@ const PicAPI = {
       proxyUrl: it.proxy_url,
       directUrl: it.direct_url,
       url: it.proxy_url || it.direct_url
-    }));
+    };
+  },
+
+  async listPage({ limit = 60, offset = 0, q = '', sort = 'new', date = '', summary = false } = {}) {
+    if (serverHasAuth && !getToken()) {
+      return { items: [], total: 0, totalSizeKB: 0, hasMore: false, nextOffset: 0, summary: null };
+    }
+    const token = getToken();
+    const headers = authHeaders({}, token);
+    const parts = [
+      'limit=' + encodeURIComponent(limit),
+      'offset=' + encodeURIComponent(offset),
+      'sort=' + encodeURIComponent(sort || 'new'),
+      'tz_offset=' + encodeURIComponent(-new Date().getTimezoneOffset())
+    ];
+    if (q) parts.push('q=' + encodeURIComponent(q));
+    if (date) parts.push('date=' + encodeURIComponent(date));
+    if (summary) parts.push('summary=1');
+    const res = await authFetch('/api/objects?' + parts.join('&'), { headers });
+    const json = await res.json();
+    if (!res.ok || json.code !== 200) {
+      if (res.status === 401 && getToken() === token) {
+        setToken('');
+        updateTokenUI();
+        renderGallery();
+        promptAuthModal('需要重新登录以访问图库');
+      }
+      throw new Error(json.msg || '图库加载失败');
+    }
+    const d = json.data || {};
+    const raw = d.list || [];
+    const mapped = raw.map((it, idx) => PicAPI.mapObjectItem(it, offset + idx));
+    const total = Number.isFinite(Number(d.total)) ? Number(d.total) : mapped.length;
+    const totalSizeBytes = Number.isFinite(Number(d.total_size))
+      ? Number(d.total_size)
+      : raw.reduce((sum, it) => sum + (Number(it.size) || 0), 0);
+    const nextOffset = Number.isFinite(Number(d.next_offset)) ? Number(d.next_offset) : (offset + mapped.length);
+    const hasMore = typeof d.has_more === 'boolean' ? d.has_more : (mapped.length > 0 && nextOffset < total);
+    const parsedSummary = d.summary ? {
+      loaded: true,
+      totalCount: Number(d.summary.total_count) || 0,
+      totalSizeKB: (Number(d.summary.total_size) || 0) / 1024,
+      dates: Array.isArray(d.summary.dates)
+        ? d.summary.dates.map(g => ({ date: String(g.date || ''), count: Number(g.count) || 0 })).filter(g => g.date)
+        : []
+    } : null;
+    return {
+      items: mapped,
+      total,
+      totalSizeKB: totalSizeBytes / 1024,
+      hasMore,
+      nextOffset,
+      summary: parsedSummary
+    };
+  },
+
+  async list() {
+    if (serverHasAuth && !getToken()) return [];
+    const records = [];
+    for (let offset = 0; ;) {
+      const page = await PicAPI.listPage({ limit: 1000, offset });
+      records.push(...page.items);
+      offset = page.nextOffset;
+      if (!page.items.length || !page.hasMore) break;
+    }
+    return records;
   },
 
   async upload(file, onProgress, quality = 100) {
@@ -326,7 +370,32 @@ const PicAPI = {
 };
 
 /* ================= 状态 ================= */
+const GALLERY_PAGE_SIZE = 60;
 let items = [];
+function createGalleryPageState() {
+  return {
+    loaded: false,
+    loading: false,
+    loadingMore: false,
+    total: 0,
+    totalSizeKB: 0,
+    nextOffset: 0,
+    hasMore: false,
+    error: '',
+    queryKey: '',
+    baseKey: ''
+  };
+}
+function createGallerySummary() {
+  return {
+    loaded: false,
+    totalCount: 0,
+    totalSizeKB: 0,
+    dates: []
+  };
+}
+let galleryPage = createGalleryPageState();
+let gallerySummary = createGallerySummary();
 const FORMATS = ['url', 'md', 'bb', 'html'];
 const SORT_OPTIONS = { new: '最新优先', old: '最早优先', big: '体积大到小', small: '体积小到大' };
 const savedFmt = (() => {
@@ -365,7 +434,11 @@ function clearPrivateUI() {
   setSortMenuOpen(false);
   pageInitialized = false;
   galleryRequest++;
+  clearTimeout(gallerySearchTimer);
+  gallerySearchTimer = null;
   items = [];
+  galleryPage = createGalleryPageState();
+  gallerySummary = createGallerySummary();
   state.queue.forEach(q => URL.revokeObjectURL(q.preview));
   state.queue = [];
   apiKeyValue = '';
@@ -380,6 +453,8 @@ function clearPrivateUI() {
   $('#queueActions').hidden = true;
   $('#queueSummary').textContent = '';
   $('#grid').replaceChildren();
+  $('#galleryFooter').hidden = true;
+  $('#gallerySearch').value = '';
   state.folder = 'all';
   $('#recentCard').hidden = true;
   $('#recentEmpty').hidden = false;
@@ -1230,8 +1305,7 @@ $('#uploadBtn').addEventListener('click', async () => {
           proxyUrl: q.result.proxyUrl,
           thumbUrl: q.result.thumbUrl
         };
-        items = items.filter(it => it.id !== item.id);
-        items.unshift(item);
+        recordGalleryUpload(item);
         void rememberLocalUpload(item, q.file, historyVersion);
         renderGallery();
       } catch (err) {
@@ -1560,23 +1634,230 @@ $('#copyFmtBtn').addEventListener('click', () => {
 
 /* ================= 图库 ================= */
 let galleryRequest = 0;
+let gallerySearchTimer = null;
 
-async function refreshGallery() {
+function galleryQueryParams() {
+  const date = state.folder !== 'all' && state.folder !== 'root' ? state.folder : '';
+  const q = $('#gallerySearch').value.trim();
+  const sort = Object.hasOwn(SORT_OPTIONS, state.sort) ? state.sort : 'new';
+  return { date, q, sort };
+}
+
+function galleryQueryKey(params) {
+  return params.date + '\0' + params.sort + '\0' + params.q.toLowerCase();
+}
+
+function galleryBaseKey(params) {
+  return params.date + '\0' + params.q.toLowerCase();
+}
+
+function itemMatchesQuery(item, params) {
+  const date = imageDate(item.ts);
+  if (params.date && date !== params.date) return false;
+  if (params.q) {
+    const kw = params.q.toLowerCase();
+    if (!item.name.toLowerCase().includes(kw) && !item.key.toLowerCase().includes(kw) && !date.includes(kw)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function mergeGalleryItems(existing, incoming) {
+  const seen = new Set(existing.map(it => it.id));
+  const merged = existing.slice();
+  for (const it of incoming) {
+    if (!seen.has(it.id)) {
+      seen.add(it.id);
+      merged.push(it);
+    }
+  }
+  return merged;
+}
+
+function recordGalleryUpload(item) {
+  const existed = items.some(it => it.id === item.id);
+  const params = galleryQueryParams();
+  if (itemMatchesQuery(item, params)) {
+    items = items.filter(it => it.id !== item.id);
+    items.unshift(item);
+    if (!existed && galleryPage.loaded) {
+      galleryPage.total++;
+      galleryPage.totalSizeKB += item.sizeKB;
+      galleryPage.nextOffset++;
+    }
+  }
+  if (!existed && gallerySummary.loaded) {
+    gallerySummary.totalCount++;
+    gallerySummary.totalSizeKB += item.sizeKB;
+    const date = imageDate(item.ts);
+    const row = gallerySummary.dates.find(g => g.date === date);
+    if (row) {
+      row.count++;
+    } else {
+      gallerySummary.dates.push({ date, count: 1 });
+      gallerySummary.dates.sort((a, b) => b.date.localeCompare(a.date));
+    }
+  }
+}
+
+function recordGalleryDelete(deletedItems) {
+  if (!deletedItems.length) return;
+  const deletedSet = new Set(deletedItems.map(it => it.key || it.id));
+  items = items.filter(it => !deletedSet.has(it.key || it.id));
+  const removedSizeKB = deletedItems.reduce((sum, it) => sum + (it.sizeKB || 0), 0);
+  if (galleryPage.loaded) {
+    galleryPage.total = Math.max(0, galleryPage.total - deletedItems.length);
+    galleryPage.totalSizeKB = Math.max(0, galleryPage.totalSizeKB - removedSizeKB);
+    galleryPage.nextOffset = Math.max(0, galleryPage.nextOffset - deletedItems.length);
+    if (galleryPage.nextOffset >= galleryPage.total) galleryPage.hasMore = false;
+  }
+  if (gallerySummary.loaded) {
+    gallerySummary.totalCount = Math.max(0, gallerySummary.totalCount - deletedItems.length);
+    gallerySummary.totalSizeKB = Math.max(0, gallerySummary.totalSizeKB - removedSizeKB);
+    const counts = new Map(gallerySummary.dates.map(g => [g.date, g.count]));
+    for (const it of deletedItems) {
+      const date = imageDate(it.ts);
+      const next = (counts.get(date) || 0) - 1;
+      if (next > 0) counts.set(date, next);
+      else counts.delete(date);
+    }
+    gallerySummary.dates = [...counts.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
+}
+
+async function refreshGallery({ reset = false, includeSummary = true } = {}) {
+  if (serverHasAuth && !getToken()) return;
   const request = ++galleryRequest;
   const token = getToken();
+  const params = galleryQueryParams();
+  const nextQueryKey = galleryQueryKey(params);
+  const nextBaseKey = galleryBaseKey(params);
+  const sameQuery = !reset && galleryPage.loaded && galleryPage.queryKey === nextQueryKey;
+  const limit = sameQuery
+    ? Math.min(1000, Math.max(GALLERY_PAGE_SIZE, items.length))
+    : GALLERY_PAGE_SIZE;
+
+  galleryPage.loading = true;
+  galleryPage.loadingMore = false;
+  galleryPage.error = '';
+  renderGalleryFooter();
+
   try {
-    const fresh = await PicAPI.list();
+    const page = await PicAPI.listPage({
+      limit,
+      offset: 0,
+      q: params.q,
+      sort: params.sort,
+      date: params.date,
+      summary: includeSummary || !gallerySummary.loaded
+    });
     if (request !== galleryRequest || getToken() !== token) return;
-    items = fresh;
+    items = page.items;
+    galleryPage = {
+      loaded: true,
+      loading: false,
+      loadingMore: false,
+      total: page.total,
+      totalSizeKB: page.totalSizeKB,
+      nextOffset: page.nextOffset,
+      hasMore: page.hasMore,
+      error: '',
+      queryKey: nextQueryKey,
+      baseKey: nextBaseKey
+    };
+    if (page.summary) gallerySummary = page.summary;
     renderGallery();
+    maybeLoadMoreGallery();
   } catch (err) {
-    if (request === galleryRequest && getToken() === token) toast(err.message);
+    if (request !== galleryRequest || getToken() !== token) return;
+    galleryPage.loading = false;
+    galleryPage.error = err.message || '图库加载失败';
+    renderGalleryFooter();
+    toast(err.message);
   }
+}
+
+function canAutoLoadMoreGallery() {
+  return state.page === 'gallery'
+    && !document.body.classList.contains('auth-locked')
+    && galleryPage.loaded
+    && galleryPage.hasMore
+    && !galleryPage.loading
+    && !galleryPage.loadingMore
+    && !galleryPage.error;
+}
+
+async function loadMoreGallery() {
+  if (serverHasAuth && !getToken()) return;
+  if (!galleryPage.loaded || !galleryPage.hasMore || galleryPage.loading || galleryPage.loadingMore) return;
+  const request = galleryRequest;
+  const token = getToken();
+  const params = galleryQueryParams();
+  const activeQueryKey = galleryQueryKey(params);
+  if (activeQueryKey !== galleryPage.queryKey) {
+    return refreshGallery({ reset: true, includeSummary: false });
+  }
+
+  galleryPage.loadingMore = true;
+  galleryPage.error = '';
+  renderGalleryFooter();
+
+  try {
+    const page = await PicAPI.listPage({
+      limit: GALLERY_PAGE_SIZE,
+      offset: galleryPage.nextOffset,
+      q: params.q,
+      sort: params.sort,
+      date: params.date,
+      summary: false
+    });
+    if (request !== galleryRequest || getToken() !== token) return;
+    items = mergeGalleryItems(items, page.items);
+    galleryPage.loadingMore = false;
+    galleryPage.total = page.total;
+    galleryPage.totalSizeKB = page.totalSizeKB;
+    galleryPage.nextOffset = page.nextOffset;
+    galleryPage.hasMore = page.hasMore && page.items.length > 0;
+    renderGallery();
+    maybeLoadMoreGallery();
+  } catch (err) {
+    if (request !== galleryRequest || getToken() !== token) return;
+    galleryPage.loadingMore = false;
+    galleryPage.error = err.message || '加载更多失败';
+    renderGalleryFooter();
+    toast(err.message);
+  }
+}
+
+function maybeLoadMoreGallery() {
+  if (!canAutoLoadMoreGallery()) return;
+  const sentinel = $('#gallerySentinel');
+  if (!sentinel) return;
+  const rect = sentinel.getBoundingClientRect();
+  if (rect.top <= window.innerHeight + 420) {
+    void loadMoreGallery();
+  }
+}
+
+let galleryScrollObserver = null;
+function setupGalleryInfiniteScroll() {
+  const sentinel = $('#gallerySentinel');
+  if (!sentinel || typeof IntersectionObserver !== 'function') return;
+  galleryScrollObserver?.disconnect();
+  galleryScrollObserver = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting) && canAutoLoadMoreGallery()) {
+      void loadMoreGallery();
+    }
+  }, { rootMargin: '420px 0px' });
+  galleryScrollObserver.observe(sentinel);
 }
 
 function filteredItems() {
   const kw = $('#gallerySearch').value.trim().toLowerCase();
-  const list = items.filter(it => !kw || it.name.toLowerCase().includes(kw) || imageDate(it.ts).includes(kw));
+  const list = items.filter(it => !kw || it.name.toLowerCase().includes(kw) || it.key.toLowerCase().includes(kw) || imageDate(it.ts).includes(kw));
   const sort = state.sort;
   list.sort((a, b) => (sort === 'old' ? a.ts - b.ts : sort === 'big' ? b.sizeKB - a.sizeKB : sort === 'small' ? a.sizeKB - b.sizeKB : b.ts - a.ts));
   return list;
@@ -1630,11 +1911,16 @@ function dateFolders(list) {
 }
 
 function setGalleryFolder(folder) {
+  const changed = state.folder !== folder;
   state.folder = folder;
   state.selected.clear();
   state.selectMode = false;
   closeInspector();
   renderGallery();
+  if (changed && !document.body.classList.contains('auth-locked')) {
+    window.scrollTo({ top: 0 });
+    void refreshGallery({ reset: true, includeSummary: false });
+  }
 }
 
 function setSortMenuOpen(open) {
@@ -1659,10 +1945,46 @@ function setGallerySort(val, { render = true, close = true } = {}) {
     opt.setAttribute('aria-selected', String(on));
   });
   if (close) setSortMenuOpen(false);
-  if (changed && render) renderGallery();
+  if (changed && render) {
+    const params = galleryQueryParams();
+    const canSortLocally = galleryPage.loaded && !galleryPage.hasMore && galleryPage.baseKey === galleryBaseKey(params);
+    if (canSortLocally) {
+      galleryPage.queryKey = galleryQueryKey(params);
+      renderGallery();
+    } else if (!document.body.classList.contains('auth-locked')) {
+      renderGallery();
+      window.scrollTo({ top: 0 });
+      void refreshGallery({ reset: true, includeSummary: false });
+    } else {
+      renderGallery();
+    }
+  }
 }
 
-$('#gallerySearch').addEventListener('input', () => renderGallery());
+$('#gallerySearch').addEventListener('input', () => {
+  clearTimeout(gallerySearchTimer);
+  const kw = $('#gallerySearch').value.trim();
+  const params = galleryQueryParams();
+  const hasFullDateInMemory = galleryPage.loaded && !galleryPage.hasMore && galleryPage.baseKey === (params.date + '\0');
+  if (hasFullDateInMemory) {
+    renderGallery();
+    return;
+  }
+  gallerySearchTimer = setTimeout(() => {
+    gallerySearchTimer = null;
+    if (!document.body.classList.contains('auth-locked')) {
+      void refreshGallery({ reset: true, includeSummary: false });
+    }
+  }, kw ? 220 : 80);
+});
+$('#gallerySearch').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  clearTimeout(gallerySearchTimer);
+  gallerySearchTimer = null;
+  if (!document.body.classList.contains('auth-locked')) {
+    void refreshGallery({ reset: true, includeSummary: false });
+  }
+});
 $('#gallerySortBtn').addEventListener('click', () => setSortMenuOpen($('#gallerySortMenu').hidden));
 $('#gallerySortBtn').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1710,10 +2032,16 @@ async function deleteItems(ids) {
     const keys = targets.map(it => it.key || it.id);
     const result = await PicAPI.batchRemove(keys);
     const deleted = new Set(result.deleted_keys || []);
-    items = items.filter(it => !deleted.has(it.key || it.id));
+    const deletedTargets = targets.filter(it => deleted.has(it.key || it.id));
+    recordGalleryDelete(deletedTargets);
     deleted.forEach(id => state.selected.delete(id));
     await forgetLocalRecent([...deleted]);
     renderGallery();
+    if (!galleryViewItems().length && galleryPage.hasMore) {
+      void loadMoreGallery();
+    } else if (deleted.size) {
+      maybeLoadMoreGallery();
+    }
     toast(result.errors?.length ? '已删除 ' + deleted.size + ' 张，其余删除失败，请重试' : '已删除 ' + deleted.size + ' 张');
   } catch (err) {
     toast('删除失败: ' + err.message);
@@ -1842,7 +2170,7 @@ function updateTokenUI() {
     '# 上传：multipart 字段 file，返回 data.key 和 data.url',
     `curl -H "Authorization: Bearer $API_KEY" -F "file=@photo.jpg" ${origin}/api/upload`,
     '',
-    '# 列表：支持 limit、offset、q',
+    '# 列表：支持 limit、offset、q、sort、date、tz_offset、summary',
     `curl -H "Authorization: Bearer $API_KEY" '${origin}/api/objects?limit=50&offset=0'`,
     '',
     '# 下载：将 <key> 替换为上传返回的完整 data.key',
@@ -1949,10 +2277,62 @@ function tileRecord(it) {
   };
 }
 
+function renderGalleryFooter() {
+  const footer = $('#galleryFooter');
+  const status = $('#galleryFooterStatus');
+  const moreBtn = $('#galleryMoreBtn');
+  if (!footer || !status || !moreBtn) return;
+  if (document.body.classList.contains('auth-locked')) {
+    footer.hidden = true;
+    return;
+  }
+  const visibleCount = galleryViewItems().length;
+  const params = galleryQueryParams();
+  const synced = galleryPage.loaded && galleryPage.queryKey === galleryQueryKey(params);
+  const totalCount = synced ? Math.max(galleryPage.total, visibleCount) : visibleCount;
+
+  if (galleryPage.loading && !visibleCount) {
+    footer.hidden = false;
+    status.textContent = '正在加载图片...';
+    moreBtn.hidden = true;
+    return;
+  }
+  if (galleryPage.loadingMore) {
+    footer.hidden = false;
+    status.textContent = '正在加载更多...（已显示 ' + visibleCount + ' / ' + totalCount + ' 张）';
+    moreBtn.hidden = true;
+    return;
+  }
+  if (galleryPage.error) {
+    footer.hidden = false;
+    status.textContent = galleryPage.error;
+    moreBtn.textContent = '重试';
+    moreBtn.hidden = false;
+    moreBtn.disabled = false;
+    return;
+  }
+  if (synced && galleryPage.hasMore) {
+    footer.hidden = false;
+    status.textContent = '已显示 ' + visibleCount + ' / ' + totalCount + ' 张';
+    moreBtn.textContent = '加载更多';
+    moreBtn.hidden = false;
+    moreBtn.disabled = false;
+    return;
+  }
+  if (synced && totalCount > GALLERY_PAGE_SIZE && visibleCount > 0) {
+    footer.hidden = false;
+    status.textContent = '已显示全部 ' + totalCount + ' 张';
+    moreBtn.hidden = true;
+    return;
+  }
+  footer.hidden = true;
+}
+
 function renderGallery() {
   const grid = $('#grid');
   if (document.body.classList.contains('auth-locked')) {
     grid.replaceChildren();
+    $('#galleryFooter').hidden = true;
     return;
   }
   const list = galleryViewItems();
@@ -1990,18 +2370,27 @@ function renderGallery() {
   for (const node of [...grid.children]) {
     if (!retained.has(node)) node.remove();
   }
-  $('#galleryEmpty').hidden = !!list.length;
-  const total = items.reduce((sum, it) => sum + it.sizeKB, 0);
-  const meta = items.length + ' 张 · ' + fmtSize(total);
+  const params = galleryQueryParams();
+  const hasFilter = !!(params.q || params.date);
+  const emptyEl = $('#galleryEmpty');
+  emptyEl.textContent = hasFilter ? '没有找到匹配的图片。' : '图库还没有图片，可前往上传页添加。';
+  emptyEl.hidden = !!list.length || (galleryPage.loading && !galleryPage.loaded);
+
+  const summaryCount = gallerySummary.loaded ? gallerySummary.totalCount : items.length;
+  const summarySizeKB = gallerySummary.loaded ? gallerySummary.totalSizeKB : items.reduce((sum, it) => sum + it.sizeKB, 0);
+  const meta = summaryCount + ' 张 · ' + fmtSize(summarySizeKB);
   $('#storageInfo').textContent = meta;
   $('#sbStorageMeta').textContent = meta;
-  $('#countAll').textContent = items.length;
+  $('#countAll').textContent = summaryCount;
   $('#countRecent').textContent = localRecent.length;
   if (state.page === 'gallery') {
+    const synced = galleryPage.loaded && galleryPage.queryKey === galleryQueryKey(params);
+    const viewCount = synced ? galleryPage.total : list.length;
+    const viewSizeKB = synced ? galleryPage.totalSizeKB : list.reduce((sum, it) => sum + it.sizeKB, 0);
     $('#viewTitle').textContent = state.folder === 'all' || state.folder === 'root' ? '图片' : state.folder;
-    $('#viewSub').textContent = list.length + ' 张图片 · ' + fmtSize(list.reduce((sum, it) => sum + it.sizeKB, 0));
+    $('#viewSub').textContent = viewCount + ' 张图片 · ' + fmtSize(viewSizeKB);
   }
-  const dates = dateFolders(items);
+  const dates = gallerySummary.loaded ? gallerySummary.dates : dateFolders(items);
   syncKeyedCards($('#sidebarDates'), dates.map(g => ({
     key: g.date,
     html: `<button class="sb-item" type="button" data-date="${g.date}"><span>${g.date}</span><em class="sb-count">${g.count}</em></button>`
@@ -2019,6 +2408,7 @@ function renderGallery() {
     b.setAttribute('aria-pressed', String(on));
   });
   updateGallerySelection();
+  renderGalleryFooter();
   if (activeInspectorId && !items.some(it => it.id === activeInspectorId)) closeInspector();
 }
 
@@ -2174,8 +2564,13 @@ for (const id of ['sidebarDates', 'mobileDateStrip']) {
   $('#' + id).addEventListener('click', e => {
     const b = e.target.closest('[data-date]');
     if (!b) return;
-    if (state.page !== 'gallery') showPage('gallery');
-    setGalleryFolder(b.dataset.date);
+    const nextDate = b.dataset.date;
+    if (state.page !== 'gallery') {
+      state.folder = nextDate;
+      showPage('gallery');
+    } else {
+      setGalleryFolder(nextDate);
+    }
   });
 }
 
@@ -2241,8 +2636,21 @@ function stepWorkspaceInspector(delta) {
   if ($('#inspector').hidden) return;
   const list = galleryViewItems();
   const index = list.findIndex(it => it.id === activeInspectorId);
-  if (index >= 0 && list.length > 1) openInspector(list[(index + delta + list.length) % list.length].id);
+  if (index >= 0 && list.length > 1) {
+    const nextIndex = (index + delta + list.length) % list.length;
+    openInspector(list[nextIndex].id);
+    if (delta > 0 && nextIndex >= list.length - 5 && galleryPage.hasMore && !galleryPage.loadingMore) {
+      void loadMoreGallery();
+    }
+  }
 }
+
+$('#galleryMoreBtn').addEventListener('click', () => {
+  galleryPage.error = '';
+  if (!galleryPage.loaded) void refreshGallery({ reset: true, includeSummary: true });
+  else void loadMoreGallery();
+});
+setupGalleryInfiniteScroll();
 
 $('#inspPrevBtn').addEventListener('click', () => stepWorkspaceInspector(-1));
 $('#inspNextBtn').addEventListener('click', () => stepWorkspaceInspector(1));

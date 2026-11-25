@@ -128,6 +128,11 @@
           <div class="mobile-filter-strip" id="mobileDateStrip" role="group" aria-label="按日期筛选"></div>
           <div id="grid" class="photo-sections"></div>
           <div class="empty" id="galleryEmpty" hidden>图库还没有图片，可前往上传页添加。</div>
+          <div class="gallery-footer" id="galleryFooter" hidden>
+            <span class="gallery-footer-status" id="galleryFooterStatus" role="status" aria-live="polite"></span>
+            <button type="button" class="btn btn-ghost" id="galleryMoreBtn" hidden>加载更多</button>
+          </div>
+          <div class="gallery-sentinel" id="gallerySentinel" aria-hidden="true"></div>
         </section>
 
         <section class="view on" id="page-upload" aria-label="上传">

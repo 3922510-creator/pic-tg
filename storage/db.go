@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -65,6 +66,7 @@ func OpenDB(dirPath string) (*DB, error) {
 		token TEXT NOT NULL UNIQUE
 	);
 	CREATE INDEX IF NOT EXISTS idx_objects_created ON objects (created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_objects_size ON objects (size DESC, created_at DESC);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -155,51 +157,180 @@ func (d *DB) DeleteObject(key string) error {
 
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-func (d *DB) ListObjects(limit, offset int, query string) ([]ObjectRecord, int, error) {
+type ListOptions struct {
+	Limit           int
+	Offset          int
+	Query           string
+	Sort            string
+	Date            string
+	TZOffsetMinutes int
+	IncludeSummary  bool
+}
+
+type DateSummary struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+type GallerySummary struct {
+	TotalCount int           `json:"total_count"`
+	TotalSize  int64         `json:"total_size"`
+	Dates      []DateSummary `json:"dates"`
+}
+
+type ListResult struct {
+	Items     []ObjectRecord
+	Total     int
+	TotalSize int64
+	Summary   *GallerySummary
+}
+
+func clampTZOffset(minutes int) int {
+	if minutes < -840 {
+		return -840
+	}
+	if minutes > 840 {
+		return 840
+	}
+	return minutes
+}
+
+func sqliteTZModifier(minutes int) string {
+	return fmt.Sprintf("%+d minutes", clampTZOffset(minutes))
+}
+
+func listOrderClause(sort string) string {
+	switch sort {
+	case "old":
+		return "ORDER BY o.created_at ASC, o.key ASC"
+	case "big":
+		return "ORDER BY o.size DESC, o.created_at DESC, o.key DESC"
+	case "small":
+		return "ORDER BY o.size ASC, o.created_at DESC, o.key ASC"
+	default:
+		return "ORDER BY o.created_at DESC, o.key DESC"
+	}
+}
+
+func (d *DB) gallerySummary(tzModifier string) (*GallerySummary, error) {
+	summary := &GallerySummary{
+		Dates: []DateSummary{},
+	}
+	if err := d.QueryRow("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM objects").Scan(&summary.TotalCount, &summary.TotalSize); err != nil {
+		return nil, err
+	}
+	rows, err := d.Query(`SELECT date(created_at, ?) AS local_date, COUNT(*)
+		FROM objects
+		WHERE created_at != ''
+		GROUP BY local_date
+		HAVING local_date IS NOT NULL
+		ORDER BY local_date DESC`, tzModifier)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ds DateSummary
+		if err := rows.Scan(&ds.Date, &ds.Count); err != nil {
+			return nil, err
+		}
+		summary.Dates = append(summary.Dates, ds)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return summary, nil
+}
+
+func (d *DB) ListObjectsPage(opts ListOptions) (*ListResult, error) {
+	limit := opts.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	if limit > 1000 {
 		limit = 1000
 	}
+	offset := opts.Offset
 	if offset < 0 {
 		offset = 0
 	}
-	var total int
-	var rows *sql.Rows
-	var err error
 
-	if query != "" {
-		likePattern := "%" + likeEscaper.Replace(query) + "%"
-		if err := d.QueryRow(`SELECT COUNT(*) FROM objects WHERE key LIKE ? ESCAPE '\'`, likePattern).Scan(&total); err != nil {
-			return nil, 0, err
-		}
-		rows, err = d.Query(`SELECT o.key, o.fid, o.file_id, o.size, o.orig_size, o.width, o.height, o.format, o.mime, o.created_at, o.backend, o.tg_chat_id, o.tg_message_id, o.connection_id, COALESCE(p.token, '')
-			FROM objects o
-			LEFT JOIN public_links p ON p.object_key = o.key
-			WHERE o.key LIKE ? ESCAPE '\'
-			ORDER BY o.created_at DESC LIMIT ? OFFSET ?`, likePattern, limit, offset)
-	} else {
-		if err := d.QueryRow("SELECT COUNT(*) FROM objects").Scan(&total); err != nil {
-			return nil, 0, err
-		}
-		rows, err = d.Query(`SELECT o.key, o.fid, o.file_id, o.size, o.orig_size, o.width, o.height, o.format, o.mime, o.created_at, o.backend, o.tg_chat_id, o.tg_message_id, o.connection_id, COALESCE(p.token, '')
-			FROM objects o
-			LEFT JOIN public_links p ON p.object_key = o.key
-			ORDER BY o.created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+	tzMinutes := clampTZOffset(opts.TZOffsetMinutes)
+	tzModifier := sqliteTZModifier(tzMinutes)
+
+	result := &ListResult{
+		Items: []ObjectRecord{},
 	}
+	if opts.IncludeSummary {
+		summary, err := d.gallerySummary(tzModifier)
+		if err != nil {
+			return nil, err
+		}
+		result.Summary = summary
+	}
+
+	var whereParts []string
+	var args []any
+
+	if dateStr := strings.TrimSpace(opts.Date); dateStr != "" {
+		dayStart, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return result, nil
+		}
+		// Convert the client-local calendar day [00:00, +24h) into UTC bounds so idx_objects_created can be used.
+		utcStart := dayStart.Add(-time.Duration(tzMinutes) * time.Minute)
+		utcEnd := utcStart.Add(24 * time.Hour)
+		whereParts = append(whereParts, "o.created_at >= ? AND o.created_at < ?")
+		args = append(args, utcStart.Format("2006-01-02 15:04:05"), utcEnd.Format("2006-01-02 15:04:05"))
+	}
+
+	if query := strings.TrimSpace(opts.Query); query != "" {
+		likePattern := "%" + likeEscaper.Replace(query) + "%"
+		whereParts = append(whereParts, `(o.key LIKE ? ESCAPE '\' OR date(o.created_at, ?) LIKE ? ESCAPE '\')`)
+		args = append(args, likePattern, tzModifier, likePattern)
+	}
+
+	whereSQL := ""
+	if len(whereParts) > 0 {
+		whereSQL = " WHERE " + strings.Join(whereParts, " AND ")
+	}
+
+	if err := d.QueryRow("SELECT COUNT(*), COALESCE(SUM(o.size), 0) FROM objects o"+whereSQL, args...).Scan(&result.Total, &result.TotalSize); err != nil {
+		return nil, err
+	}
+
+	querySQL := `SELECT o.key, o.fid, o.file_id, o.size, o.orig_size, o.width, o.height, o.format, o.mime, o.created_at, o.backend, o.tg_chat_id, o.tg_message_id, o.connection_id, COALESCE(p.token, '')
+		FROM objects o
+		LEFT JOIN public_links p ON p.object_key = o.key` + whereSQL + " " + listOrderClause(opts.Sort) + " LIMIT ? OFFSET ?"
+	queryArgs := append(append([]any{}, args...), limit, offset)
+
+	rows, err := d.Query(querySQL, queryArgs...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var list []ObjectRecord
 	for rows.Next() {
 		var o ObjectRecord
 		if err := rows.Scan(&o.Key, &o.FID, &o.FileID, &o.Size, &o.OrigSize, &o.Width, &o.Height, &o.Format, &o.Mime, &o.CreatedAt, &o.Backend, &o.TGChatID, &o.TGMessageID, &o.ConnectionID, &o.PublicToken); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
-		list = append(list, o)
+		result.Items = append(result.Items, o)
 	}
-	return list, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (d *DB) ListObjects(limit, offset int, query string) ([]ObjectRecord, int, error) {
+	res, err := d.ListObjectsPage(ListOptions{
+		Limit:  limit,
+		Offset: offset,
+		Query:  query,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return res.Items, res.Total, nil
 }
