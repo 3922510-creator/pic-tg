@@ -16,7 +16,43 @@
 
 ## 快速开始
 
-### 1. 源码构建
+### 1. 一键交互式安装（推荐，Linux + systemd）
+
+将域名 A/AAAA 记录解析到服务器 IP 后，运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/3922510-creator/pic-tg/main/install.sh | sudo bash
+```
+
+脚本会交互式引导完成以下配置（支持 `linux/amd64` 与 `linux/arm64`，优先下载带 SHA256 校验的 Release 二进制，无预编译包时自动回退源码编译）：
+
+- 输入图床域名并进行 DNS 预检
+- 选择是否经过 Cloudflare 代理（自动配置 `trust_proxy_header`）
+- 设置本地监听端口、安装目录与初始登录密码（留空自动生成随机强密码与独立 API Key）
+- 可选安装无损图片优化工具（`jpegtran` / `cwebp`）
+- 自动安装并配置 Caddy（独立写入 `/etc/caddy/conf.d/pic-tg.caddy`，不覆盖已有站点配置，自动签发并续期 HTTPS 证书）
+- 创建非 root 系统用户 `pictg` 与加固的 `pic-tg.service`，启动并完成本地健康检查
+
+无损升级与卸载：
+
+```bash
+# 无损升级二进制（保留 config.json 与图库数据，失败自动回滚）
+curl -fsSL https://raw.githubusercontent.com/3922510-creator/pic-tg/main/install.sh | sudo bash -s -- --upgrade
+
+# 卸载服务（可选择是否保留数据目录）
+curl -fsSL https://raw.githubusercontent.com/3922510-creator/pic-tg/main/install.sh | sudo bash -s -- --uninstall
+```
+
+如需全非交互自动化部署，可传入参数，例如：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/3922510-creator/pic-tg/main/install.sh | sudo bash -s -- \
+  --domain pic.example.com --port 8798 --cloudflare no --caddy yes --optimizers yes --yes
+```
+
+安装完成后访问 `https://你的域名`，使用输出面板中的初始密码登录，前往「设置 -> Telegram 存储」填入 Bot Token 与目标频道/群组 Chat ID 即可开始使用。
+
+### 2. 源码构建
 
 需要 Go 1.26+（可选安装 `jpegtran` 与 `cwebp` 以启用服务端无损优化）：
 
@@ -29,9 +65,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pic-tg .
 
 首次启动且 `config.json` 不存在时，程序会自动初始化 `./config.json`（权限 `0600`）并生成随机 `auth_token`（Web 登录密码）与 `api_key`（独立 API Key），请查看该文件获取初始凭据。
 
-启动后访问 `http://127.0.0.1:8798`，登录后前往「设置 -> Telegram 存储」填入 Bot Token 与目标频道/群组 Chat ID 即可使用。
-
-### 2. Docker 运行
+### 3. Docker 运行
 
 ```bash
 docker build -t pic-tg .
