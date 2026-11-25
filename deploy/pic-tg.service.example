@@ -1,0 +1,20 @@
+[Unit]
+Description=Pic TG Image Hosting Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pictg
+Group=pictg
+WorkingDirectory=/opt/pic-tg
+ExecStart=/opt/pic-tg/pic-tg -config /opt/pic-tg/config.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pic-tg
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+# Binaries
+/pic-tg
+*.exe
+*.out
+
+# Local configuration & secrets
+config.json
+*.local.json
+
+# Runtime state & SQLite databases
+/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# Backups, logs, and test artifacts
+/backups/
+*.log
+/tmp/
+coverage.out
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

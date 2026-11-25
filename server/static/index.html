@@ -1,0 +1,469 @@
+<!doctype html>
+<!-- Pic TG · Self-hosted Telegram-backed image workspace -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#ffffff" id="metaThemeColor"/>
+<meta name="robots" content="noindex"/>
+<title>Pic TG</title>
+<script>(function(){try{var m=localStorage.getItem('pic-theme')||'system';var t=m==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):m;document.documentElement.dataset.theme=t;document.documentElement.dataset.themeMode=m;}catch(e){document.documentElement.dataset.theme='light';document.documentElement.dataset.themeMode='system';}})();</script>
+<link rel="stylesheet" href="/assets/app.css"/>
+</head>
+<body class="auth-locked">
+<div class="app-shell" id="appShell" inert>
+  <aside class="sidebar" aria-label="主导航">
+    <div class="sb-brand">
+      <div class="sb-logo" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4.5"/><circle cx="9" cy="9" r="1.6"/><path d="m4 17 5-4 3 2.2 4-5.2 4 4.5"/></svg>
+      </div>
+      <div class="sb-brand-text">
+        <strong>Pic TG</strong>
+        <span>私人图库</span>
+      </div>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-label">图库</div>
+      <nav class="sb-nav" aria-label="图库视图">
+        <button type="button" class="sb-item on" data-page="upload" aria-current="page">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>
+          <span>上传</span>
+          <em class="sb-count" id="countRecent">0</em>
+        </button>
+        <button type="button" class="sb-item" data-page="gallery">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span>图片</span>
+          <em class="sb-count" id="countAll">0</em>
+        </button>
+      </nav>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-label">按日期</div>
+      <div class="sb-dates" id="sidebarDates"></div>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-label">工具</div>
+      <nav class="sb-nav" aria-label="配置与接口">
+        <button type="button" class="sb-item" data-page="api">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          <span>API 与接入</span>
+        </button>
+        <button type="button" class="sb-item" data-page="settings">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h8"/><path d="M18 8h2"/><circle cx="15" cy="8" r="2.2"/><path d="M4 16h2"/><path d="M12 16h8"/><circle cx="9" cy="16" r="2.2"/></svg>
+          <span>偏好设置</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="sb-footer">
+      <div class="sb-storage">
+        <div class="sb-storage-row">
+          <span>Telegram 存储</span>
+          <strong id="sbStorageMeta">正在加载</strong>
+        </div>
+        <div class="sb-storage-status">
+          <i class="status-dot" aria-hidden="true"></i>
+          <span>上传质量可调 · 默认 95%</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <header class="topbar">
+      <div class="tb-left">
+        <div class="mobile-brand" aria-hidden="true">
+          <span class="sb-logo sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4.5"/><circle cx="9" cy="9" r="1.6"/><path d="m4 17 5-4 3 2.2 4-5.2 4 4.5"/></svg>
+          </span>
+        </div>
+        <div class="tb-title-wrap">
+          <h1 id="viewTitle">上传图片</h1>
+          <span class="tb-sub" id="viewSub">正在加载</span>
+        </div>
+      </div>
+
+      <div class="tb-center" id="galleryControls" hidden>
+        <label class="search-field" aria-label="搜索图片">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="gallerySearch" placeholder="搜索文件名或日期" autocomplete="off"/>
+        </label>
+        <div class="sort-select" id="gallerySort">
+          <button type="button" class="sort-trigger" id="gallerySortBtn" aria-haspopup="listbox" aria-expanded="false" aria-controls="gallerySortMenu" aria-label="排序方式">
+            <span id="gallerySortLabel">最新优先</span>
+            <svg class="sort-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="sort-menu" id="gallerySortMenu" role="listbox" aria-label="排序方式" hidden>
+            <button type="button" class="sort-option on" role="option" data-sort="new" aria-selected="true"><span>最新优先</span><svg class="sort-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg></button>
+            <button type="button" class="sort-option" role="option" data-sort="old" aria-selected="false"><span>最早优先</span><svg class="sort-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg></button>
+            <button type="button" class="sort-option" role="option" data-sort="big" aria-selected="false"><span>体积大到小</span><svg class="sort-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg></button>
+            <button type="button" class="sort-option" role="option" data-sort="small" aria-selected="false"><span>体积小到大</span><svg class="sort-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tb-right">
+        <div class="density-seg" id="densitySeg" role="group" aria-label="网格密度" hidden>
+          <button type="button" data-density="cozy" class="on" aria-label="标准网格" title="标准网格">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </button>
+          <button type="button" data-density="compact" aria-label="紧凑网格" title="紧凑网格">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="4.5" height="4.5" rx="1"/><rect x="9.75" y="3" width="4.5" height="4.5" rx="1"/><rect x="16.5" y="3" width="4.5" height="4.5" rx="1"/><rect x="3" y="9.75" width="4.5" height="4.5" rx="1"/><rect x="9.75" y="9.75" width="4.5" height="4.5" rx="1"/><rect x="16.5" y="9.75" width="4.5" height="4.5" rx="1"/><rect x="3" y="16.5" width="4.5" height="4.5" rx="1"/><rect x="9.75" y="16.5" width="4.5" height="4.5" rx="1"/><rect x="16.5" y="16.5" width="4.5" height="4.5" rx="1"/></svg>
+          </button>
+        </div>
+        <button type="button" class="tb-btn" id="selectModeBtn" hidden>选择</button>
+        <button type="button" class="tb-icon-btn" id="themeToggle" aria-label="切换浅色或深色主题" title="切换浅色 / 深色">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.3 17.7-1.4 1.4"/><path d="m19.1 4.9-1.4 1.4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace-body">
+      <main class="canvas">
+        <section class="view" id="page-gallery" aria-label="照片画廊">
+          <div class="mobile-filter-strip" id="mobileDateStrip" role="group" aria-label="按日期筛选"></div>
+          <div id="grid" class="photo-sections"></div>
+          <div class="empty" id="galleryEmpty" hidden>图库还没有图片，可前往上传页添加。</div>
+        </section>
+
+        <section class="view on" id="page-upload" aria-label="上传">
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="选择、拖拽或粘贴图片上传">
+            <div class="ring"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg></div>
+            <b>选择、拖入或粘贴图片</b>
+            <p>支持点击选图、拖入文件或直接 Ctrl+V 粘贴剪贴板图片</p>
+            <div class="drop-hints" aria-hidden="true">
+              <span>可选压缩 · 上传 ≤ 20 MB</span>
+              <span>每批最多 6 张</span>
+              <span>3 路并行上传</span>
+            </div>
+            <input type="file" id="fileInput" multiple accept="image/*" hidden/>
+          </div>
+
+          <div class="queue" id="queue" aria-live="polite"></div>
+
+          <div class="queue-actions" id="queueActions" hidden>
+            <div class="queue-bar">
+              <span class="queue-summary" id="queueSummary"></span>
+              <button type="button" class="mini" id="queueClearBtn">清空队列</button>
+            </div>
+            <div class="upload-quality" id="uploadQualityPanel" hidden>
+              <label for="uploadQuality">压缩质量</label><output id="uploadQualityValue" for="uploadQuality">95%</output>
+              <input type="range" id="uploadQuality" min="30" max="100" step="5" value="95" aria-valuetext="95%" aria-describedby="uploadQualityHint"/>
+              <small id="uploadQualityHint">适用于本批静态 JPG、PNG、WebP。向左调低质量，文件通常更小。</small>
+            </div>
+            <button class="btn btn-solid is-idle" id="uploadBtn">开始上传</button>
+          </div>
+
+          <section class="recent-panel" id="recentCard" hidden aria-label="本机最近上传">
+            <div class="recent-heading">
+              <h3>最近上传 <span id="recentCount"></span></h3>
+              <button class="mini" id="recentClear">清空记录</button>
+            </div>
+            <div class="recent-toolbar">
+              <div class="seg-control" id="fmtTabs" role="group" aria-label="复制格式">
+                <button class="on" data-f="url">直链</button>
+                <button data-f="md">MD</button>
+                <button data-f="bb">BBCode</button>
+                <button data-f="html">HTML</button>
+              </div>
+              <button class="mini" id="copyFmtBtn">复制全部</button>
+            </div>
+            <div class="recent-grid" id="recentGrid"></div>
+            <button class="btn btn-ghost" id="recentMore" hidden>加载更多</button>
+          </section>
+
+          <div class="empty recent-empty" id="recentEmpty">
+            <strong>本机最近上传为空</strong>
+            <span>成功上传的图片缩略图与快捷链接会保存在当前浏览器，更换设备不互通</span>
+          </div>
+          <p id="recentStatus" role="status" hidden></p>
+        </section>
+
+        <section class="view" id="page-api" aria-label="API">
+          <div class="card">
+            <h3>上传接口</h3>
+            <div class="kv"><span>地址</span><b id="apiUploadEndpoint">POST /api/upload</b></div>
+            <div class="kv"><span>参数</span><b>multipart/form-data，字段 file</b></div>
+            <div class="kv"><span>请求头</span><b>Authorization: Bearer &lt;API Key&gt;</b></div>
+            <div class="kv"><span>返回</span><b>JSON：url（代理外链）、size（存储字节数）</b></div>
+          </div>
+
+          <div class="card">
+            <h3>API Key</h3>
+            <div class="token">
+              <code id="tokenText">••••••••••••••••</code>
+              <button class="mini" id="tokenShowBtn">显示</button>
+              <button class="mini" id="tokenCopyBtn">复制</button>
+              <button class="mini danger" id="tokenRegenBtn">重新生成</button>
+            </div>
+            <p class="muted" style="margin:10px 0 0">独立于登录口令，重置后旧 Key 失效。</p>
+          </div>
+
+          <details class="card help-card">
+            <summary>接口示例</summary>
+            <div class="code" id="apiCurlCode" style="margin-top:12px"></div>
+          </details>
+
+          <details class="card help-card">
+            <summary>PicGo</summary>
+            <div class="code" id="picgoCode"></div>
+            <button class="mini" id="picgoCopyBtn" style="margin-top:12px">复制这段配置</button>
+          </details>
+
+          <details class="card help-card">
+            <summary>Typora</summary>
+            <ol class="steps">
+              <li>偏好设置 → 图像 → 上传服务选「自定义命令」。</li>
+              <li>命令指向调用 /api/upload 的脚本，带上上面的 API Key。</li>
+              <li>点「测试上传」确认返回直链后，粘贴图片即自动上传。</li>
+            </ol>
+          </details>
+        </section>
+
+        <section class="view" id="page-settings" aria-label="设置">
+          <div class="card">
+            <h3>外观</h3>
+            <div class="seg" id="themeSeg" role="group" aria-label="外观主题">
+              <button data-m="light"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.3 17.7-1.4 1.4"/><path d="m19.1 4.9-1.4 1.4"/></svg>浅色</button>
+              <button data-m="dark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>深色</button>
+              <button data-m="system">跟随系统</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>默认复制格式</h3>
+            <div class="seg" id="defaultFormatSeg" role="group" aria-label="默认复制格式">
+              <button data-format="url" class="on">直链</button>
+              <button data-format="md">MD</button>
+              <button data-format="bb">BBCode</button>
+              <button data-format="html">HTML</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>图片处理</h3>
+            <div class="kv"><span>优化方式</span><b>无损 · 保留原尺寸</b></div>
+            <div class="kv"><span>动态图片</span><b>原样保存</b></div>
+            <div class="kv"><span>单图上限</span><b>20 MB</b></div>
+          </div>
+
+          <div class="card">
+            <h3>账号与存储</h3>
+            <div class="kv">
+              <span>当前存储</span>
+              <div class="storage-current">
+                <b id="storageStatusText">正在检查…</b>
+                <button class="mini" id="tgManage" type="button" aria-haspopup="dialog" aria-controls="tgDialog">管理接入</button>
+              </div>
+            </div>
+            <div class="kv"><span>图床登录</span><b style="color:var(--ok)" id="loginStatus">已登录 · 认证开启</b></div>
+            <div class="kv"><span>存储用量</span><b id="storageInfo">—</b></div>
+            <div class="btnrow">
+              <button class="mini" id="btnChangePwd">修改密码</button>
+              <button class="mini" id="btnLogout">退出登录</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <div class="inspector-modal" id="inspectorModal" hidden>
+        <aside class="inspector" id="inspector" aria-label="图片详情面板" hidden>
+          <div class="insp-head">
+            <strong>图片信息</strong>
+            <div class="insp-head-actions">
+              <button type="button" class="tb-icon-btn sm" id="inspCloseBtn" aria-label="关闭详情面板" title="关闭">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="insp-body">
+            <div class="insp-stage" id="inspStage">
+              <button type="button" class="insp-full-close" id="inspFullClose" aria-label="退出全屏" title="退出全屏 (Esc)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+              <button type="button" class="insp-nav prev" id="inspPrevBtn" aria-label="上一张" title="上一张 (←)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <button type="button" class="insp-preview" id="inspPreviewBtn" aria-label="点击查看大图">
+                <img id="inspImg" alt=""/>
+              </button>
+              <button type="button" class="insp-nav next" id="inspNextBtn" aria-label="下一张" title="下一张 (→)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </div>
+
+            <div class="insp-title-block">
+              <h2 id="inspName">—</h2>
+              <p id="inspMeta">—</p>
+            </div>
+
+            <div class="insp-copy-card">
+              <div class="seg-control full" id="inspFmtSeg" role="group" aria-label="链接格式">
+                <button type="button" data-fmt="url" class="on">直链</button>
+                <button type="button" data-fmt="md">MD</button>
+                <button type="button" data-fmt="bb">BB</button>
+                <button type="button" data-fmt="html">HTML</button>
+              </div>
+              <div class="insp-link-box" id="inspLinkText">—</div>
+              <button type="button" class="pill-btn solid full" id="inspCopyBtn">复制链接</button>
+            </div>
+
+            <dl class="insp-specs">
+              <div><dt>日期</dt><dd id="inspDate">—</dd></div>
+              <div><dt>体积</dt><dd id="inspSize">—</dd></div>
+              <div><dt>尺寸</dt><dd id="inspDim">—</dd></div>
+              <div><dt>存储</dt><dd>Telegram 频道</dd></div>
+            </dl>
+
+            <div class="insp-danger">
+              <button type="button" class="pill-btn danger full" id="inspDeleteBtn">从图库删除</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="batchbar batch-dock" id="batchbar">
+  <b id="batchInfo">已选 0 项</b>
+  <button class="mini" id="batchAll">全选当前</button>
+  <button class="mini" id="batchCopyBtn">复制直链</button>
+  <button class="mini" id="batchCopyMD">复制 MD</button>
+  <button class="mini danger" id="batchDeleteBtn">删除</button>
+  <button class="mini" id="batchCancelBtn">完成</button>
+</div>
+
+<dialog class="dialog telegram-dialog" id="tgDialog" aria-labelledby="tgDialogTitle">
+  <div class="tg-dialog-heading">
+    <h3 id="tgDialogTitle">Telegram 接入</h3>
+    <button class="mini" id="tgClose" type="button" autofocus>关闭</button>
+  </div>
+  <p class="muted">机器人需有频道发帖、删帖权限。</p>
+  <div class="form-group">
+    <label for="tgConnection">已保存接入</label>
+    <select id="tgConnection" class="dialog-input"><option value="">新增接入</option></select>
+  </div>
+  <div class="form-group">
+    <label for="tgToken">Bot Token</label>
+    <input id="tgToken" class="dialog-input" type="password" autocomplete="new-password" spellcheck="false" placeholder="从 BotFather 获取；已保存的 Token 不回显"/>
+  </div>
+  <div class="btnrow">
+    <button class="mini" id="tgVerify">验证机器人</button>
+    <button class="mini" id="tgDiscover">查找频道</button>
+  </div>
+  <div class="form-group" id="tgChannelsGroup" hidden>
+    <label for="tgChannels">找到的频道</label>
+    <select id="tgChannels" class="dialog-input"></select>
+  </div>
+  <div class="form-group">
+    <label for="tgChatID">频道 ID</label>
+    <input id="tgChatID" class="dialog-input" inputmode="text" autocomplete="off" placeholder="负数，例如 -1001234567890"/>
+  </div>
+  <p class="muted" id="tgFeedback" role="status" aria-live="polite">加载中…</p>
+  <div class="btnrow">
+    <button class="mini" id="tgSave">保存并设为当前接入</button>
+  </div>
+  <p class="muted">旧图保留原接入。找不到频道时可手填 ID。</p>
+</dialog>
+
+<dialog class="dialog redact-dialog" id="redactDialog" aria-labelledby="redactTitle">
+  <h3 id="redactTitle">上传前打码</h3>
+  <p id="redactHint">拖动框选，可遮多处。密码、证件号等敏感内容建议用黑块。</p>
+  <p id="redactOutputHint"></p>
+  <div class="redact-tools">
+    <button type="button" class="mini" id="redactBlack" aria-pressed="true">黑块</button>
+    <button type="button" class="mini" id="redactPixel" aria-pressed="false">马赛克</button>
+    <button type="button" class="mini" id="redactUndo" disabled>撤销</button>
+  </div>
+  <div class="redact-stage" id="redactStage" hidden>
+    <canvas id="redactCanvas" aria-label="打码预览"></canvas>
+    <div class="redact-outline" id="redactOutline" hidden></div>
+  </div>
+  <p id="redactError" role="status" hidden></p>
+  <div class="btnrow">
+    <button type="button" class="mini" id="redactCancel">取消</button>
+    <button type="button" class="mini" id="redactApply" disabled>应用打码</button>
+  </div>
+</dialog>
+
+<nav class="mobile-tabbar" aria-label="移动主导航">
+  <button type="button" data-page="upload" aria-current="page">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>
+    <span>上传</span>
+  </button>
+  <button type="button" data-page="gallery">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+    <span>图片</span>
+  </button>
+  <button type="button" data-page="api">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+    <span>API</span>
+  </button>
+  <button type="button" data-page="settings">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h8"/><path d="M18 8h2"/><circle cx="15" cy="8" r="2.2"/><path d="M4 16h2"/><path d="M12 16h8"/><circle cx="9" cy="16" r="2.2"/></svg>
+    <span>设置</span>
+  </button>
+</nav>
+
+<!-- 通用确认弹窗 -->
+<div class="overlay" id="confirmOverlay" role="dialog" aria-modal="true">
+  <div class="dialog">
+    <h3 id="confirmTitle">确认</h3>
+    <p id="confirmBody"></p>
+    <div class="btnrow" style="margin-top:16px">
+      <button class="btn btn-ghost" id="confirmCancel">取消</button>
+      <button class="btn btn-solid" id="confirmOk" style="width:auto">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 本地上传记录大图预览 -->
+<div class="recent-zoom" id="recentZoom" role="dialog" aria-modal="true" aria-label="本地图片预览" hidden>
+  <button type="button" class="insp-full-close" id="recentZoomClose" aria-label="关闭预览" title="关闭">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+  </button>
+  <img id="recentZoomImg" alt=""/>
+</div>
+
+<!-- 独立全屏登录页；未验证前主界面隐藏且 inert -->
+<section id="authOverlay" aria-labelledby="authTitle">
+  <form class="dialog" id="authForm">
+    <h1 id="authTitle">Pic TG</h1>
+    <p id="authMsg" role="status" aria-live="polite">正在验证登录状态，请稍候…</p>
+    <label for="authInput">访问口令</label>
+    <input type="password" id="authInput" class="dialog-input" placeholder="请输入图床访问口令" autocomplete="current-password" required/>
+    <button class="btn btn-solid" id="authSubmitBtn" type="submit">登录图床</button>
+  </form>
+</section>
+
+<!-- 修改密码弹窗 -->
+<div class="overlay" id="pwdOverlay" role="dialog" aria-modal="true">
+  <div class="dialog">
+    <h3>修改图床密码</h3>
+    <p>修改后本设备同步使用新登录口令，其他设备需重新登录；API Key 和外部客户端配置不变</p>
+    <div class="form-group">
+      <label for="oldPwdInput">当前密码</label>
+      <input type="password" id="oldPwdInput" class="dialog-input" placeholder="请输入当前密码"/>
+    </div>
+    <div class="form-group">
+      <label for="newPwdInput">新密码</label>
+      <input type="password" id="newPwdInput" class="dialog-input" placeholder="请输入新密码（不少于 6 位）"/>
+    </div>
+    <div class="btnrow" style="margin-top:16px">
+      <button class="btn btn-ghost" id="pwdCancelBtn">取消</button>
+      <button class="btn btn-solid" id="pwdSubmitBtn" style="width:auto">确认修改</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script src="/assets/app.js" defer></script>
+</body>
+</html>

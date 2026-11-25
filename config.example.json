@@ -1,0 +1,12 @@
+{
+  "port": 8798,
+  "host": "127.0.0.1",
+  "public_origin": "https://pic.example.com",
+  "allowed_origins": [],
+  "trust_proxy_header": "",
+  "state_dir": "./data",
+  "auth_token": "replace-with-a-strong-login-password",
+  "api_key": "replace-with-a-distinct-api-key",
+  "default_connection_id": "",
+  "telegram_connections": []
+}
