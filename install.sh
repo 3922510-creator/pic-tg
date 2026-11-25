@@ -159,18 +159,14 @@ parse_args() {
 }
 
 tty_available() {
-  [[ -r /dev/tty && -w /dev/tty ]]
+  (exec 3<>/dev/tty) 2>/dev/null
 }
 
 prompt_line() {
   local prompt="$1"
   local default_val="${2:-}"
   local reply=""
-  if [[ "$NON_INTERACTIVE" == "yes" ]]; then
-    printf '%s' "$default_val"
-    return 0
-  fi
-  if ! tty_available; then
+  if [[ "$NON_INTERACTIVE" == "yes" ]] || ! tty_available; then
     printf '%s' "$default_val"
     return 0
   fi
@@ -179,7 +175,10 @@ prompt_line() {
   else
     printf '%s: ' "$prompt" >/dev/tty
   fi
-  IFS= read -r reply </dev/tty || true
+  if ! IFS= read -r reply </dev/tty; then
+    printf '\n' >/dev/tty 2>/dev/null || true
+    die "输入已中断"
+  fi
   if [[ -z "$reply" ]]; then
     reply="$default_val"
   fi
@@ -194,7 +193,10 @@ prompt_secret() {
     return 0
   fi
   printf '%s: ' "$prompt" >/dev/tty
-  IFS= read -rs reply </dev/tty || true
+  if ! IFS= read -rs reply </dev/tty; then
+    printf '\n' >/dev/tty 2>/dev/null || true
+    die "输入已中断"
+  fi
   printf '\n' >/dev/tty
   printf '%s' "$reply"
 }
@@ -211,7 +213,10 @@ prompt_yes_no() {
   while true; do
     local ans=""
     printf '%s %s: ' "$prompt" "$suffix" >/dev/tty
-    IFS= read -r ans </dev/tty || true
+    if ! IFS= read -r ans </dev/tty; then
+      printf '\n' >/dev/tty 2>/dev/null || true
+      die "输入已中断"
+    fi
     if [[ -z "$ans" ]]; then
       printf '%s' "$default_val"
       return 0
@@ -680,13 +685,16 @@ do_install() {
 
   while true; do
     if [[ -z "$DOMAIN" ]]; then
+      if [[ "$NON_INTERACTIVE" == "yes" ]] || ! tty_available; then
+        die "当前环境无交互终端，请使用 --domain <域名> --yes 参数执行非交互安装"
+      fi
       DOMAIN="$(prompt_line "请输入图床域名（例如 pic.example.com）" "")"
     fi
     DOMAIN="$(sanitize_domain "$DOMAIN")"
     if validate_domain "$DOMAIN"; then
       break
     fi
-    if [[ "$NON_INTERACTIVE" == "yes" ]]; then
+    if [[ "$NON_INTERACTIVE" == "yes" ]] || ! tty_available; then
       die "无效域名: '${DOMAIN}'（请通过 --domain 指定，如 pic.example.com）"
     fi
     warn "域名格式无效，请重新输入（仅需填写域名，无需 https://）"
@@ -935,6 +943,6 @@ main() {
   esac
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
   main "$@"
 fi
